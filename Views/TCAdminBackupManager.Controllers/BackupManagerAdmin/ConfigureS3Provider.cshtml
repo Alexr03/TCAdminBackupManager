@@ -1,0 +1,58 @@
+﻿@using System.Web.Mvc.Ajax
+@using System.Web.Mvc.Html
+@using Alexr03.Common.Web.Extensions
+@using Kendo.Mvc.UI
+@using TCAdmin.SDK.Web.MVC.Extensions
+@using TCAdminBackupManager.Configuration
+@model TCAdminBackupManager.Configuration.S3ProviderConfiguration
+
+@using (Ajax.BeginForm(new AjaxOptions {OnSuccess = "Alexr03.Common.HandleAjaxSuccess", OnBegin = "Alexr03.Common.HandleAjaxBegin", OnFailure = "TCAdmin.Ajax.HandleAjaxFailure"}))
+{
+    @Html.AntiForgeryToken()
+    <div class="primary-toolbar">
+        @(Html.Kendo().ToolBar()
+            .Name("toolBar".Prefix(Model.GetType(), "_"))
+            .Items(items =>
+            {
+                items.Add().Template(this.GetToolbarButton(Resources.Global.Save, "save"));
+                items.Add().Type(CommandType.Button).Icon("cancel").Text(Resources.Global.Cancel).Click("TCAdmin.Ajax.CancelClicked");
+            }))
+    </div>
+    <div class="primary-content">
+        <fieldset class="fieldset-form auto-focus">
+            @Html.ValidationSummary(true)
+            <h2>S3 Provider Configuration</h2>
+            <ul>
+                <li>
+                    <dl>
+                        <h3>General Information</h3>
+                        <dt>@Html.LabelFor(m => m.Enabled)</dt>
+                        <dd>@Html.Kendo().SwitchFor(m => m.Enabled)@Html.ValidationMessageFor(m => m.Enabled)@Html.TooltipFor(m => m.Enabled)</dd>
+
+                        <dt>@Html.LabelFor(m => m.Quota)</dt>
+                        <dd>
+                            @Html.Kendo().NumericTextBoxFor(m => m.Quota).Format("#")@Html.ValidationMessageFor(m => m.Quota)@Html.TooltipFor(m => m.Quota)
+                            @Html.Kendo().DropDownListFor(m => m.QuotaType).HtmlAttributes(new {style = "width: 80px;"}).BindTo(Enum.GetNames(typeof(QuotaType)).ToList().Select(x => new DropDownListItem {Text = x, Value = ((int) Enum.Parse(typeof(QuotaType), x, true)).ToString()})).SelectedIndex((int)Model.QuotaType)
+                        </dd>
+                    </dl>
+                </li>
+                <li>
+                    <dl>
+                        <h3>S3 Information</h3>
+                        <dt>@Html.LabelFor(m => m.Host)</dt>
+                        <dd>@Html.Kendo().TextBoxFor(m => m.Host)@Html.ValidationMessageFor(m => m.Host)@Html.TooltipFor(m => m.Host)</dd>
+
+                        <dt>@Html.LabelFor(m => m.AccessId)</dt>
+                        <dd>@Html.Kendo().TextBoxFor(m => m.AccessId)@Html.ValidationMessageFor(m => m.AccessId)@Html.TooltipFor(m => m.AccessId)</dd>
+
+                        <dt>@Html.LabelFor(m => m.AccessSecret)</dt>
+                        <dd>@Html.Kendo().TextBoxFor(m => m.AccessSecret).HtmlAttributes(new {type = "password"})@Html.ValidationMessageFor(m => m.AccessSecret)@Html.TooltipFor(m => m.AccessSecret)</dd>
+
+                        <dt>@Html.LabelFor(m => m.Region)</dt>
+                        <dd>@Html.Kendo().TextBoxFor(m => m.Region)@Html.ValidationMessageFor(m => m.Region)@Html.TooltipFor(m => m.Region)</dd>
+                    </dl>
+                </li>
+            </ul>
+        </fieldset>
+    </div>
+}

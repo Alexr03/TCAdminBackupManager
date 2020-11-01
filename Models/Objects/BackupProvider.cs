@@ -9,11 +9,11 @@ namespace TCAdminBackupManager.Models.Objects
 {
     public class BackupProvider : DynamicTypeBase
     {
-        public BackupProvider() : base("tcmodule_backup_providers")
+        public BackupProvider() : base("tcmodule_backupmanager_providers")
         {
         }
 
-        public BackupProvider(int id)
+        public BackupProvider(int id) : this()
         {
             this.SetValue("id", id);
             this.ValidateKeys();
@@ -31,15 +31,36 @@ namespace TCAdminBackupManager.Models.Objects
 
         public long GetQuota(Service service = null)
         {
-            var defaultQuota = this.Configuration.Parse<BackupProviderConfiguration>().QuotaBytes;
-            if (service == null)
+            var config = this.Configuration.Parse<BackupProviderConfiguration>();
+            long quota;
+            if (service != null)
             {
-                return defaultQuota;
+                var key = $"{this.Name}:LIMIT";
+                quota = service.AppData.HasValueAndSet(key)
+                    ? Convert.ToInt64(service.AppData[key])
+                    : config.Quota;
+            }
+            else
+            {
+                quota = config.Quota;
             }
 
-            return service.Variables.HasValueAndSet($"{this.Name}:LIMIT")
-                ? Convert.ToInt64(service.Variables[$"{this.Name}:LIMIT"])
-                : defaultQuota;
+            switch (config.QuotaType)
+            {
+                case QuotaType.Kb:
+                    quota *= 1_000;
+                    break;
+                case QuotaType.Mb:
+                    quota *= 1_000_000;
+                    break;
+                case QuotaType.Gb:
+                    quota *= 1_000_000_000;
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException();
+            }
+
+            return quota;
         }
     }
 }

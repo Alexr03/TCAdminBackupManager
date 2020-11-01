@@ -1,0 +1,163 @@
+﻿@using System.Globalization
+@using System.Web.Mvc.Html
+@using Alexr03.Common.Web.Extensions
+@using Kendo.Mvc.UI
+@using TCAdmin.GameHosting.SDK.Objects
+@using TCAdmin.SDK.Web.MVC.Extensions
+@using TCAdminBackupManager.Controllers
+@using TCAdminBackupManager.Models.Objects
+@model TCAdminBackupManager.Models.BackupManagerIndexModel
+@{
+    Layout = this.GetTemplateFile("Shared/Main.cshtml", true);
+    var service = new Service(Model.ServiceId);
+    var backups = Backup.GetBackupsForService(service);
+}
+
+@section head {
+    @* <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" integrity="sha384-JcKb8q3iqJ61gNV9KGb8thSsNjpSL0n8PARn9HuZOnIxN0hoP+VmmDGMN5t9UJ0Z" crossorigin="anonymous"> *@
+    @* <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js" integrity="sha384-B4gt1jrGC7Jh4AgTPSdUtOBvfO8shuf57BaghqFfPlYxofvL8/KUEfYiJOMMV+rV" crossorigin="anonymous"></script> *@
+    <link rel="stylesheet" href="/Content/bootstrap/bootstrap-grid.min.css"/>
+}
+
+@section sidebar{
+    @Html.Action("_PageIcons", "Service", new {id = Model.ServiceId})
+}
+
+@functions{
+
+    static string GetFileSize(long byteCount)
+    {
+        string[] suf = {"B", "KB", "MB", "GB", "TB", "PB", "EB"}; //Longs run out around EB
+        if (byteCount == 0)
+            return "0" + suf[0];
+        var bytes = Math.Abs(byteCount);
+        var place = Convert.ToInt32(Math.Floor(Math.Log(bytes, 1000)));
+        var num = Math.Round(bytes / Math.Pow(1000, place), 1);
+        return (Math.Sign(byteCount) * num).ToString(CultureInfo.InvariantCulture) + suf[place];
+    }
+
+}
+
+<div class="container-fluid">
+    <h3>Storage Provider Information</h3>
+    <div class="row k-card-deck">
+        <div class="col-sm">
+            <div class="k-card k-card-horizontal">
+                <img src="https://www.avepoint.com/blog/wp-content/uploads/2018/06/shot-of-corridor-in-working-data-center-full-of-rack-servers-and-picture-id943065362.jpg" class="k-card-media"/>
+                <div class="k-vbox k-column">
+                    <div class="k-card-header k-bg-primary k-text-align-center text-white">
+                        Overall Backup Capacity
+                    </div>
+                    <div class="k-card-body">
+                        <p class="card-text">You have used <strong>@GetFileSize(Model.UsedQuota)</strong> out of <strong>@GetFileSize(Model.MaxQuota)</strong> backup quota.</p>
+                    </div>
+                    <div class="k-card-footer">
+                        @Html.Kendo().Button().Name("configureQuotaBtn").Content("Configure Quota").Icon("data")
+                    </div>
+                </div>
+            </div>
+        </div>
+        @foreach (var provider in BackupManagerController.AccessibleProviders(new Service(Model.ServiceId)))
+        {
+            var usedSize = BackupManagerController.GetBackupsQuotaUsed(service, provider);
+            var maxSize = BackupManagerController.GetBackupsQuota(service, provider);
+            var percentFull = (int) Math.Round((double) (100 * usedSize) / maxSize);
+            <div class="col-sm">
+                <div class="k-card">
+                    <div class="k-card-header k-text-align-center text-white @(percentFull < 50 ? "k-bg-success" : percentFull < 75 ? "k-bg-warning" : "k-bg-error")">
+                        @provider.Name Backup Capacity
+                    </div>
+                    <div class="k-card-body">
+                        <p class="card-text">You have used <strong>@GetFileSize(usedSize)</strong> out of <strong>@GetFileSize(maxSize)</strong> backup quota for the <strong>@provider.Name</strong> provider.</p>
+                    </div>
+                    <div class="k-card-footer">
+                        @(Html.Kendo().ProgressBar()
+                            .Name("progressBar".Prefix(provider.Name.Replace(" ", ""), "_"))
+                            .Min(0).Max(Convert.ToDouble(maxSize))
+                            .Value(Convert.ToDouble(usedSize))
+                            .HtmlAttributes(new {style = "width: 100%"})
+                            .Type(ProgressBarType.Percent))
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+    <div class="row" style="padding-top: 20px">
+        <div class="col-sm">
+            <h3>Backups (@backups.Count)</h3>
+            @(Html.Kendo().ListView<Backup>()
+                .Name("backupsListView")
+                .ClientTemplateId("backupTemplate")
+                .TagName("div")
+                .Layout("grid")
+                .DataSource(dataSource => { dataSource.Model(model => model.Id(id => id.BackupId)); })
+                .HtmlAttributes(new {style = "width: 100%;min-height: 800px;padding: 20px"})
+                .BindTo(backups))
+        </div>
+    </div>
+</div>
+
+
+<script>
+    $(document).ready(function() {
+        document.querySelector("#backupsListView > div").classList.add("row")
+        document.querySelector("#backupsListView > div").classList.add("k-card-deck")
+    });
+</script>
+
+<script type="text/x-kendo-tmpl" id="backupTemplate">
+    # console.log(TestList) #
+    <div class="col-3">
+        <div class="k-card">
+            <div class="k-card-header k-bg-primary k-text-align-center text-white">
+                #=Name#
+            </div>
+            <div class="k-card-body">
+                <p class="k-card-text">#=FileSize#</p>
+            </div>
+            <div class="k-card-actions k-text-align-center">
+                <span class="k-button k-flat k-button-icon"><span class="k-icon k-i-heart-outline"></span></span>
+                <span class="k-button k-flat k-button-icon"><span class="k-icon k-i-comment"></span></span>
+                <span class="k-button k-flat k-button-icon"><span class="k-icon k-i-share"></span></span>
+            </div>
+        </div>
+    </div>
+
+</script>
+
+<style>    
+    *, :before, :after
+    {
+        -webkit-box-sizing: content-box;
+        -moz-box-sizing: content-box;
+        box-sizing: content-box;
+    }
+    
+    /* set a border-box model only to elements that need it */
+    
+    .form-control, /* if this class is applied to a Kendo UI widget, its layout may change */
+    .container,
+    .container-fluid,
+    .row,
+    .col-xs-1, .col-sm-1, .col-md-1, .col-lg-1,
+    .col-xs-2, .col-sm-2, .col-md-2, .col-lg-2,
+    .col-xs-3, .col-sm-3, .col-md-3, .col-lg-3,
+    .col-xs-4, .col-sm-4, .col-md-4, .col-lg-4,
+    .col-xs-5, .col-sm-5, .col-md-5, .col-lg-5,
+    .col-xs-6, .col-sm-6, .col-md-6, .col-lg-6,
+    .col-xs-7, .col-sm-7, .col-md-7, .col-lg-7,
+    .col-xs-8, .col-sm-8, .col-md-8, .col-lg-8,
+    .col-xs-9, .col-sm-9, .col-md-9, .col-lg-9,
+    .col-xs-10, .col-sm-10, .col-md-10, .col-lg-10,
+    .col-xs-11, .col-sm-11, .col-md-11, .col-lg-11,
+    .col-xs-12, .col-sm-12, .col-md-12, .col-lg-12
+    {
+        -webkit-box-sizing: border-box;
+        -moz-box-sizing: border-box;
+        box-sizing: border-box;
+    }
+    
+    .text-white{
+        color: #fff;
+    }
+</style>
