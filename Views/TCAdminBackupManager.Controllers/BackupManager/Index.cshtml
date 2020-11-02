@@ -1,5 +1,5 @@
-﻿@using System.Globalization
-@using System.Web.Mvc.Html
+﻿@using System.Web.Mvc.Html
+@using System.Web.Optimization
 @using Alexr03.Common.Web.Extensions
 @using Kendo.Mvc.UI
 @using TCAdmin.GameHosting.SDK.Objects
@@ -10,65 +10,213 @@
 @{
     Layout = this.GetTemplateFile("Shared/Main.cshtml", true);
     var service = new Service(Model.ServiceId);
+    var accessibleProviders = BackupManagerController.AccessibleProviders(service);
     var backups = Backup.GetBackupsForService(service);
 }
 
 @section head {
-    @* <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" integrity="sha384-JcKb8q3iqJ61gNV9KGb8thSsNjpSL0n8PARn9HuZOnIxN0hoP+VmmDGMN5t9UJ0Z" crossorigin="anonymous"> *@
-    @* <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js" integrity="sha384-B4gt1jrGC7Jh4AgTPSdUtOBvfO8shuf57BaghqFfPlYxofvL8/KUEfYiJOMMV+rV" crossorigin="anonymous"></script> *@
     <link rel="stylesheet" href="/Content/bootstrap/bootstrap-grid.min.css"/>
+    @Styles.Render(this.GetTemplateFileUrl("Game/Service/FileManager.css", true))
+    @Scripts.Render(this.GetTemplateFileUrl("Game/Service/FileManager.Defaults.js", true))
 }
 
 @section sidebar{
     @Html.Action("_PageIcons", "Service", new {id = Model.ServiceId})
 }
 
-@functions{
+@(Html.Kendo().Window()
+    .Name("createBackupWindow")
+    .Visible(false)
+    .Width(1600)
+    .Height(900)
+    .Title("Create Backup")
+    .Modal(true)
+    .Scrollable(true)
+    .Content(Html.Kendo().Wizard()
+        .Name("wizard")
+        .Events(ev => ev.Done("submitCreateBackup"))
+        .ContentPosition(WizardContentPosition.Bottom)
+        .Steps(s =>
+        {
+            s.Add().Title("Choose directories & files to backup").ContentId("fileBrowser");
+            s.Add().Title("Backup Information").Form(form =>
+            {
+                form.Name("form")
+                    .HtmlAttributes(new {style = "width: 50%"})
+                    .Layout("grid")
+                    .Validatable(v =>
+                    {
+                        v.ValidateOnBlur(true);
+                        v.ValidationSummary(vs => vs.Enable(false));
+                    })
+                    .Items(items =>
+                    {
+                        items.AddGroup().Label("Backup Information")
+                            .Layout("grid")
+                            .Items(i =>
+                            {
+                                i.Add()
+                                    .Label("Backup Name")
+                                    .Hint("Unique name to recognise the backup.")
+                                    .InputHtmlAttributes(new { @required = "required"})
+                                    .Field("name");
+                                i.Add()
+                                    .Field("providerId")
+                                    .Label("Provider")
+                                    .Hint("Provider to backup to. Use 'Automatic' if you are unsure.")
+                                    .InputHtmlAttributes(new { @required = "required"})
+                                    .Editor(e => e.DropDownList()
+                                        .Name("backupProvider")
+                                        .SelectedIndex(0)
+                                        .Items(it =>
+                                        {
+                                            it.Add().Text("Automatic").Value("-1");
+                                            foreach (var provider in accessibleProviders)
+                                            {
+                                                it.Add().Text(provider.Name).Value(provider.Id.ToString());
+                                            }
+                                        })
+                                    );
+                            });
+                    });
+            });
+        }).ToHtmlString()))
 
-    static string GetFileSize(long byteCount)
-    {
-        string[] suf = {"B", "KB", "MB", "GB", "TB", "PB", "EB"}; //Longs run out around EB
-        if (byteCount == 0)
-            return "0" + suf[0];
-        var bytes = Math.Abs(byteCount);
-        var place = Convert.ToInt32(Math.Floor(Math.Log(bytes, 1000)));
-        var num = Math.Round(bytes / Math.Pow(1000, place), 1);
-        return (Math.Sign(byteCount) * num).ToString(CultureInfo.InvariantCulture) + suf[place];
+<script>
+    let browser;
+    $(document).ready(function() {
+        browser = $(".file-browser-js").kendoFileBrowser({
+            "transport":
+                {
+                    "type": "filebrowser-aspnetmvc",
+                    "fileTypes": "*.*",
+                    "read": {"url": "/Service/FileManager/BrowserRead/@Model.ServiceId"}
+                },
+        }).data("kendoFileBrowser");
+
+        browser.listView.options["selectable"] = "multiple";
+        browser.listView.options["template"] = `<div class="k-listview-item" data-type="#=Type#">
+        #if(Type == "d") { #
+            <div class="k-file-preview"><span class="k-file-icon k-icon k-i-folder"></span></div>
+        #}else{#
+            <div class="k-file-preview"><span class="k-file-icon k-icon k-i-#=kendo.getFileGroup(Extension, true)#"></span></div>
+        #}#
+            <span class="k-file-name">\${name + Extension}</span>
+        </div>`;
+            browser.listView.setOptions(browser.listView.options);
+    });
+</script>
+
+<script>
+    function createBackup(e){
+        $("#createBackupWindow").data("kendoWindow").center().open();
     }
-
-}
+    
+    function submitCreateBackup(e){
+        let selectedBackupItems = {};
+        selectedBackupItems.name = $("#name").val();
+        selectedBackupItems.providerId = $("#providerId").val();
+        selectedBackupItems.path = browser._path;
+        selectedBackupItems.directories = [];
+        selectedBackupItems.files = [];
+        const data = browser.listView.dataSource.view();
+        
+        $.map(browser.listView.select(), function (item) {
+            let tempObj = {}
+            if(item.getAttribute('data-type') === 'd'){
+                tempObj.name = data[$(item).index()].name
+                selectedBackupItems.directories.push(tempObj)
+            } else{
+                tempObj.name = data[$(item).index()].name
+                tempObj.extension = data[$(item).index()].Extension
+                selectedBackupItems.files.push(tempObj)
+            }
+        });
+        
+        $.ajax({
+            type: "POST",
+            url: "/Service/BackupManager/Backup/@Model.ServiceId",
+            data: JSON.stringify({ backupRequest: selectedBackupItems }),
+            contentType: "application/json; charset=utf-8",
+            dataType: "json",
+            beforeSend: function(e){
+                Alexr03.Common.HandleAjaxBegin(e);
+                $("#createBackupWindow").data("kendoWindow").close();
+            },
+            error: Alexr03.Common.HandleAjaxFailure,
+            success: function (e) {
+                Alexr03.Common.HandleAjaxSuccess(e, function() {
+                    window.location.reload(false)
+                });
+            }
+        });
+    }
+    
+    function downloadBackup(id){
+        window.location = "/Service/BackupManager/Download/@Model.ServiceId?backupId=" + id
+    }
+    
+    function restoreBackup(id){
+        $.ajax({
+            type: "POST",
+            url: "/Service/BackupManager/Restore/@Model.ServiceId",
+            data: JSON.stringify({ backupId: id }),
+            contentType: "application/json; charset=utf-8",
+            dataType: "json",
+            beforeSend: Alexr03.Common.HandleAjaxBegin,
+            error: Alexr03.Common.HandleAjaxFailure,
+            success: function (e) {
+                Alexr03.Common.HandleAjaxSuccess(e);
+            }
+        });
+    }
+    
+    function deleteBackup(id){
+        $.ajax({
+            type: "POST",
+            url: "/Service/BackupManager/Delete/@Model.ServiceId",
+            data: JSON.stringify({ backupId: id }),
+            contentType: "application/json; charset=utf-8",
+            dataType: "json",
+            beforeSend: Alexr03.Common.HandleAjaxBegin,
+            error: Alexr03.Common.HandleAjaxFailure,
+            success: function (e) {
+                Alexr03.Common.HandleAjaxSuccess(e, function() {
+                    window.location.reload(false)
+                });
+            }
+        });
+    }
+</script>
 
 <div class="container-fluid">
     <h3>Storage Provider Information</h3>
     <div class="row k-card-deck">
-        <div class="col-sm">
-            <div class="k-card k-card-horizontal">
-                <img src="https://www.avepoint.com/blog/wp-content/uploads/2018/06/shot-of-corridor-in-working-data-center-full-of-rack-servers-and-picture-id943065362.jpg" class="k-card-media"/>
-                <div class="k-vbox k-column">
-                    <div class="k-card-header k-bg-primary k-text-align-center text-white">
-                        Overall Backup Capacity
-                    </div>
-                    <div class="k-card-body">
-                        <p class="card-text">You have used <strong>@GetFileSize(Model.UsedQuota)</strong> out of <strong>@GetFileSize(Model.MaxQuota)</strong> backup quota.</p>
-                    </div>
-                    <div class="k-card-footer">
-                        @Html.Kendo().Button().Name("configureQuotaBtn").Content("Configure Quota").Icon("data")
-                    </div>
+        <div class="col-3">
+            <div class="k-card" style="height:100%">
+                <div class="k-card-header k-bg-primary k-text-align-center text-white">
+                    Overall Backup Capacity
+                </div>
+                <div class="k-card-body">
+                    <p class="card-text">You have used <strong>@Backup.GetFileSize(Model.UsedQuota)</strong> out of <strong>@Backup.GetFileSize(Model.MaxQuota)</strong> backup quota.</p>
+                </div>
+                <div class="k-card-footer">
+                    @Html.Kendo().Button().Name("configureQuotaBtn").Content("Configure Quota").Icon("data")
                 </div>
             </div>
         </div>
-        @foreach (var provider in BackupManagerController.AccessibleProviders(new Service(Model.ServiceId)))
+        @foreach (var provider in accessibleProviders)
         {
             var usedSize = BackupManagerController.GetBackupsQuotaUsed(service, provider);
             var maxSize = BackupManagerController.GetBackupsQuota(service, provider);
             var percentFull = (int) Math.Round((double) (100 * usedSize) / maxSize);
             <div class="col-sm">
-                <div class="k-card">
+                <div class="k-card" style="height:100%">
                     <div class="k-card-header k-text-align-center text-white @(percentFull < 50 ? "k-bg-success" : percentFull < 75 ? "k-bg-warning" : "k-bg-error")">
                         @provider.Name Backup Capacity
                     </div>
                     <div class="k-card-body">
-                        <p class="card-text">You have used <strong>@GetFileSize(usedSize)</strong> out of <strong>@GetFileSize(maxSize)</strong> backup quota for the <strong>@provider.Name</strong> provider.</p>
+                        <p class="card-text">You have used <strong>@Backup.GetFileSize(usedSize)</strong> out of <strong>@Backup.GetFileSize(maxSize)</strong> backup quota for the <strong>@provider.Name</strong> provider.</p>
                     </div>
                     <div class="k-card-footer">
                         @(Html.Kendo().ProgressBar()
@@ -85,6 +233,11 @@
     <div class="row" style="padding-top: 20px">
         <div class="col-sm">
             <h3>Backups (@backups.Count)</h3>
+            <div class="primary-toolbar">
+                @(Html.Kendo().ToolBar()
+                    .Name("backupsToolbar")
+                    .Items(items => { items.Add().Type(CommandType.Button).Text("Create Backup").Icon("plus").Click("createBackup"); }))
+            </div>
             @(Html.Kendo().ListView<Backup>()
                 .Name("backupsListView")
                 .ClientTemplateId("backupTemplate")
@@ -102,26 +255,44 @@
     $(document).ready(function() {
         document.querySelector("#backupsListView > div").classList.add("row")
         document.querySelector("#backupsListView > div").classList.add("k-card-deck")
+        document.querySelector("#wizard-1 > div.k-wizard-buttons > span.k-wizard-buttons-right > button.k-button.k-primary").innerText = "Create Backup"
     });
 </script>
-
 <script type="text/x-kendo-tmpl" id="backupTemplate">
-    # console.log(TestList) #
     <div class="col-3">
-        <div class="k-card">
+        <div class="k-card" style="height:100%">
             <div class="k-card-header k-bg-primary k-text-align-center text-white">
                 #=Name#
             </div>
             <div class="k-card-body">
-                <p class="k-card-text">#=FileSize#</p>
+                <div class="row">
+                    <div class="col k-text-align-center">
+                        <i class="fas fa-save fa-7x" style="color: grey"></i>
+                    </div>
+                    <div class="col">
+                        <ul style="list-style-type:none;">
+                            <li><p class="k-card-text"><i class="fas fa-code" style="color:green"></i> #=Guid#</p></li>
+                            <li><p class="k-card-text"><i class="fas fa-file-archive" style="color:orange"></i> #=FriendlyFileSize#</p></li>
+                            <li><p class="k-card-text"><i class="fas fa-server" style="color:blue"></i> #=Provider.Name#</p></li>
+                        </ul>
+                    </div>
+                </div>
             </div>
-            <div class="k-card-actions k-text-align-center">
-                <span class="k-button k-flat k-button-icon"><span class="k-icon k-i-heart-outline"></span></span>
-                <span class="k-button k-flat k-button-icon"><span class="k-icon k-i-comment"></span></span>
-                <span class="k-button k-flat k-button-icon"><span class="k-icon k-i-share"></span></span>
+            <div class="k-card-actions k-card-actions-center">
+                <span class="k-button k-button-icon k-bg-success" style="color: white; padding: 15px; margin-left: 5px;" onclick="downloadBackup(#:BackupId#)"><span class="fas fa-cloud-download-alt"></span></span>
+                <span class="k-button k-button-icon k-bg-warning" style="color: white; padding: 15px; margin-left: 5px;" onclick="restoreBackup(#:BackupId#)"><span class="fas fa-undo-alt"></span></span>
+                <span class="k-button k-button-icon k-bg-error" style="color: white; padding: 15px; margin-left: 5px;"onclick="deleteBackup(#:BackupId#)"><span class="fas fa-trash"></span></span>
             </div>
         </div>
     </div>
+</script>
+
+<script type="text/x-kendo-tmpl" id="fileBrowser">
+    <span>
+        <strong>Select the directories and files you wish to backup</strong>
+        <div class="k-form-hint"><span>Hold Control (CTRL) to select multiple items.</span></div>
+    </span>
+    <div class="file-browser-js" style="max-height: 600px; width: 100%"></div>
 
 </script>
 
@@ -134,7 +305,6 @@
     }
     
     /* set a border-box model only to elements that need it */
-    
     .form-control, /* if this class is applied to a Kendo UI widget, its layout may change */
     .container,
     .container-fluid,
@@ -159,5 +329,18 @@
     
     .text-white{
         color: #fff;
+    }
+    
+    .k-window-content {
+        overflow: auto;
+    }
+    
+    .k-filebrowser .k-filemanager-listview {
+        height: inherit;
+    }
+    
+    .k-filemanager-listview .k-listview-content {
+        overflow: auto;
+        max-height: 450px;
     }
 </style>

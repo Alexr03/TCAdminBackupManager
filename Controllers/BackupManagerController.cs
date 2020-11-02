@@ -2,20 +2,19 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Net;
-using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Web.Mvc;
 using Alexr03.Common.TCAdmin.Objects;
 using Alexr03.Common.Web.Extensions;
-using Alexr03.Common.Web.HttpResponses;
-using TCAdmin.SDK.Database;
+using TCAdmin.SDK.Misc;
 using TCAdmin.SDK.Web.MVC.Controllers;
-using TCAdminBackupManager.BackupSolutions;
+using TCAdminBackupManager.BackupProviders;
 using TCAdminBackupManager.Configuration;
+using TCAdminBackupManager.Exceptions;
 using TCAdminBackupManager.Models;
 using TCAdminBackupManager.Models.Objects;
 using Service = TCAdmin.GameHosting.SDK.Objects.Service;
+using WebClient = System.Net.WebClient;
 
 namespace TCAdminBackupManager.Controllers
 {
@@ -24,8 +23,6 @@ namespace TCAdminBackupManager.Controllers
         public ActionResult Index(int id)
         {
             var service = Service.GetSelectedService();
-            // return new JsonNetResult(service);
-            // return Json(service, JsonRequestBehavior.AllowGet);
             var model = new BackupManagerIndexModel
             {
                 ServiceId = service.ServiceId,
@@ -35,78 +32,33 @@ namespace TCAdminBackupManager.Controllers
             return View(model);
         }
 
-        [ParentAction("Service", "Home")]
+        [ParentAction("Service", "FileManager")]
         [HttpPost]
-        public async Task<ActionResult> BackupFile(int id, string name, string file)
+        public async Task<ActionResult> Backup(int id, BackupRequest backupRequest)
         {
             this.EnforceFeaturePermission("FileManager");
-            var backupProvider = DynamicTypeBase.GetCurrent<BackupProvider>("backupProvider");
             var service = Service.GetSelectedService();
-            var server = TCAdmin.SDK.Objects.Server.GetSelectedServer();
-            var directorySecurity = service.GetDirectorySecurityForCurrentUser();
-            var virtualDirectory =
-                new TCAdmin.SDK.VirtualFileSystem.VirtualDirectory(server.OperatingSystem, directorySecurity);
 
-            if (string.IsNullOrEmpty(file))
+            if (!backupRequest.Directories.Any() && !backupRequest.Files.Any())
             {
-                return new JsonHttpStatusResult(new
-                {
-                    Message = "Please choose a file to backup."
-                }, HttpStatusCode.BadRequest);
-            }
-
-            var realFileName = Path.GetFileName(file);
-
-            if (realFileName.Any(Path.GetInvalidFileNameChars().Contains) ||
-                !Regex.IsMatch(realFileName, @"^[\w\-.@ ]+$"))
-            {
-                return new JsonHttpStatusResult(new
-                {
-                    Message = "File contains invalid characters."
-                }, HttpStatusCode.BadRequest);
-            }
-
-            var fileSystem = server.FileSystemService;
-            var backupSolution = backupProvider.Create<BackupSolution>();
-            var filePath = virtualDirectory.CombineWithPhysicalPath(file);
-            var fileSize = fileSystem.GetFileSize(filePath);
-            if (GetBackupsQuotaUsed(service, backupProvider) + fileSize > GetBackupsQuota(service, backupProvider))
-            {
-                return new JsonHttpStatusResult(new
-                {
-                    Message = "Backing up this file will exceed your assigned capacity."
-                }, HttpStatusCode.BadRequest);
+                return this.SendError("Please choose at least <strong>1</strong> file or directory to backup.");
             }
 
             try
             {
-                var backup = new Backup
-                {
-                    ServiceId = service.ServiceId,
-                    OwnerId = service.UserId,
-                    Name = name,
-                    Provider = backupProvider,
-                    Guid = Guid.NewGuid().ToString("D"),
-                    FileSize = fileSize
-                };
-                backup.GenerateKey();
+                var backup = await Models.Objects.Backup.CreateAsync(service, backupRequest);
                 backup.Save();
-                if (!await backupSolution.BackupFile(backup, realFileName))
-                {
-                    backup.Delete();
-                    throw new Exception("Backup File Failed!");
-                }
+                return this.SendSuccess($"Backed up <strong>{backupRequest.Name}</strong>");
             }
             catch (Exception e)
             {
                 return this.SendException(e, "Failed to backup: " + e.Message);
             }
-
-            return this.SendSuccess($"Backed up <strong>{realFileName}</strong>");
         }
 
         [ParentAction("Service", "Home")]
-        public async Task<ActionResult> Restore(int id, string target, int backupId = 0)
+        [HttpPost]
+        public async Task<ActionResult> Restore(int id, int backupId = 0)
         {
             this.EnforceFeaturePermission("FileManager");
             if (backupId == 0)
@@ -115,21 +67,16 @@ namespace TCAdminBackupManager.Controllers
             }
 
             var service = Service.GetSelectedService();
-            var server = TCAdmin.GameHosting.SDK.Objects.Server.GetSelectedServer();
+            var server = TCAdmin.SDK.Objects.Server.GetSelectedServer();
             var directorySecurity = service.GetDirectorySecurityForCurrentUser();
-            var virtualDirectory =
-                new TCAdmin.SDK.VirtualFileSystem.VirtualDirectory(server.OperatingSystem, directorySecurity);
             var fileSystem = TCAdmin.SDK.Objects.Server.GetSelectedServer().FileSystemService;
             var backup = new Backup(backupId);
             var backupSolution = backup.Provider.Create<BackupSolution>();
 
             try
             {
-                var targetPath = virtualDirectory.CombineWithPhysicalPath(target);
-
-                var randomFileName = TCAdmin.SDK.Misc.Random.RandomString(8, true, true);
-                var saveTo =
-                    TCAdmin.SDK.Misc.FileSystem.CombinePath(server.OperatingSystem, targetPath, randomFileName);
+                var randomFileName = TCAdmin.SDK.Misc.Random.RandomString(8, true, true) + ".zip";
+                var saveTo = FileSystem.CombinePath(server.OperatingSystem, service.RootDirectory, backup.Path, randomFileName);
 
                 if (backupSolution.AllowsDirectDownload)
                 {
@@ -157,6 +104,11 @@ namespace TCAdminBackupManager.Controllers
                     fileSystem.SetOwnerAutomatically(saveTo);
                 }
 
+                fileSystem.Extract(saveTo,
+                    FileSystem.CombinePath(server.OperatingSystem, service.RootDirectory, backup.Path),
+                    ObjectXml.ObjectToXml(directorySecurity));
+                fileSystem.DeleteFile(saveTo);
+
                 return this.SendSuccess($"Restored <strong>{backup.Name}</strong>");
             }
             catch (Exception e)
@@ -166,6 +118,7 @@ namespace TCAdminBackupManager.Controllers
         }
 
         [ParentAction("Service", "Home")]
+        [HttpPost]
         public async Task<ActionResult> Delete(int id, int backupId = 0)
         {
             this.EnforceFeaturePermission("FileManager");
@@ -218,14 +171,14 @@ namespace TCAdminBackupManager.Controllers
 
         public static long GetBackupsQuotaUsed(Service service)
         {
-            var backups = Backup.GetBackupsForService(service);
+            var backups = Models.Objects.Backup.GetBackupsForService(service);
             var value = backups.Sum(backup => backup.FileSize);
             return value;
         }
 
         public static long GetBackupsQuotaUsed(Service service, BackupProvider provider)
         {
-            var backups = Backup.GetBackupsForService(service);
+            var backups = Models.Objects.Backup.GetBackupsForService(service);
             backups.RemoveAll(x => x.Provider.Id != provider.Id);
             var value = backups.Sum(backup => backup.FileSize);
             return value;
@@ -240,6 +193,22 @@ namespace TCAdminBackupManager.Controllers
         public static long GetBackupsQuota(Service service, BackupProvider provider)
         {
             return provider.GetQuota(service);
+        }
+
+        public static void ThrowExceedQuota(Backup backup, BackupRequest request, long fileSize)
+        {
+            var service = new Service(backup.ServiceId);
+            var t = GetBackupsQuotaUsed(service, backup.Provider);
+            var t2 = GetBackupsQuota(service, backup.Provider);
+            var newSize = t + fileSize;
+            Console.WriteLine(t);
+            Console.WriteLine(t2);
+            Console.WriteLine(newSize);
+            Console.WriteLine(newSize > t2);
+            if (newSize > t2)
+            {
+                throw new QuotaException(backup, request);
+            }
         }
 
         public static byte[] GetFileContents(string downloadUrl)

@@ -3,22 +3,25 @@ using System.IO;
 using System.Threading.Tasks;
 using Minio;
 using TCAdmin.SDK.Misc;
-using TCAdmin.SDK.VirtualFileSystem;
 using TCAdminBackupManager.Configuration;
+using TCAdminBackupManager.Controllers;
+using TCAdminBackupManager.Exceptions;
+using TCAdminBackupManager.Models;
 using TCAdminBackupManager.Models.Objects;
 using Server = TCAdmin.GameHosting.SDK.Objects.Server;
 using Service = TCAdmin.GameHosting.SDK.Objects.Service;
 
-namespace TCAdminBackupManager.BackupSolutions
+namespace TCAdminBackupManager.BackupProviders
 {
-    public class S3Solution : BackupSolution
+    public class S3Provider : BackupSolution
     {
         public readonly MinioClient MinioClient;
         private readonly string _region;
 
-        public S3Solution()
+        public S3Provider()
         {
-            var settings = new BackupProvider().FindByType(typeof(S3Solution)).Configuration.Parse<S3ProviderConfiguration>();
+            var settings = new BackupProvider().FindByType(typeof(S3Provider)).Configuration
+                .Parse<S3ProviderConfiguration>();
             var host = settings.Host;
             var username = settings.AccessId;
             var password = settings.AccessSecret;
@@ -29,31 +32,28 @@ namespace TCAdminBackupManager.BackupSolutions
             this.AllowsDirectDownload = true;
         }
 
-        public override async Task<bool> BackupFile(Backup backup, string targetPath)
+        public override async Task<BackupResponse> Backup(Backup backup, BackupRequest request)
         {
+            var bucket = $"backups-service-{backup.ServiceId}";
             var service = new Service(backup.ServiceId);
             var server = new Server(service.ServerId);
             var fileSystemService = server.FileSystemService;
-            var baseDir = FileSystem.CombinePath(server.OperatingSystem, service.RootDirectory,
-                Path.GetDirectoryName(targetPath));
-            var compressedFileName = fileSystemService.CompressFiles(baseDir, new[] {Path.GetFileName(targetPath)},
-                ObjectXml.ObjectToXml(new VirtualDirectorySecurity()), 5000000000);
-            var combinePath = FileSystem.CombinePath(server.OperatingSystem, baseDir, compressedFileName);
-            var contents = fileSystemService.ReadFile(combinePath);
-            var bucket = $"backups-service-{backup.ServiceId}";
+            var combinePath = FileSystem.FixAbsoluteFilePath(
+                FileSystem.CombinePath(server.OperatingSystem, service.RootDirectory, request.Path,
+                    Compress(backup, request)), server.OperatingSystem);
+            var fileSize = fileSystemService.GetFileSize(combinePath);
+            BackupManagerController.ThrowExceedQuota(backup, request, fileSize);
+            backup.FileSize = fileSize;
+
             if (!await MinioClient.BucketExistsAsync(bucket))
             {
                 await MinioClient.MakeBucketAsync(bucket, _region);
             }
 
+            var contents = fileSystemService.ReadBinary(combinePath);
             Stream stream = new MemoryStream(contents);
-            await MinioClient.PutObjectAsync(bucket, backup.Guid + ".zip", stream, stream.Length, "application/zip");
-            return true;
-        }
-
-        public override Task<bool> BackupDirectory(Backup backup, string targetPath)
-        {
-            throw new NotImplementedException();
+            await MinioClient.PutObjectAsync(bucket, backup.ZipFullName, stream, stream.Length, "application/zip");
+            return new BackupResponse(true);
         }
 
         public override Task<byte[]> DownloadBytes(Backup backup)
@@ -69,7 +69,7 @@ namespace TCAdminBackupManager.BackupSolutions
                 throw new Exception("No bucket exists.");
             }
 
-            var downloadUrl = await MinioClient.PresignedGetObjectAsync(bucket, backup.Guid + ".zip", 300);
+            var downloadUrl = await MinioClient.PresignedGetObjectAsync(bucket, backup.ZipFullName, 300);
             return downloadUrl;
         }
 
@@ -82,7 +82,7 @@ namespace TCAdminBackupManager.BackupSolutions
                 throw new Exception("No bucket exists.");
             }
 
-            await MinioClient.RemoveObjectAsync(bucket, backup.Guid + ".zip");
+            await MinioClient.RemoveObjectAsync(bucket, backup.ZipFullName);
             return true;
         }
     }

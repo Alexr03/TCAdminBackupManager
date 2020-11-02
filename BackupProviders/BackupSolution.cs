@@ -1,12 +1,13 @@
-﻿using System.IO;
+﻿using System.Linq;
 using System.Threading.Tasks;
 using TCAdmin.GameHosting.SDK.Objects;
 using TCAdmin.SDK.Misc;
 using TCAdmin.SDK.VirtualFileSystem;
+using TCAdminBackupManager.Models;
 using TCAdminBackupManager.Models.Objects;
 using Server = TCAdmin.GameHosting.SDK.Objects.Server;
 
-namespace TCAdminBackupManager.BackupSolutions
+namespace TCAdminBackupManager.BackupProviders
 {
     public abstract class BackupSolution
     {
@@ -16,11 +17,9 @@ namespace TCAdminBackupManager.BackupSolutions
         /// Backup a file with specific file name, contents and content type
         /// </summary>
         /// <param name="backup"></param>
-        /// <param name="targetPath">Name of the file</param>
+        /// <param name="request">The backup request, contains path, directories and files to be backed up.</param>
         /// <returns></returns>
-        public abstract Task<bool> BackupFile(Backup backup, string targetPath);
-
-        public abstract Task<bool> BackupDirectory(Backup backup, string targetPath);
+        public abstract Task<BackupResponse> Backup(Backup backup, BackupRequest request);
 
         /// <summary>
         /// Download the bytes of the file.
@@ -44,15 +43,16 @@ namespace TCAdminBackupManager.BackupSolutions
         /// <returns>True if deleted successfully.</returns>
         public abstract Task<bool> Delete(Backup backup);
 
-        public virtual string CompressFile(Backup backup, string targetPath)
+        public virtual string Compress(Backup backup, BackupRequest request)
         {
             var service = new Service(backup.ServiceId);
             var server = new Server(service.ServerId);
             var fileSystemService = server.FileSystemService;
-            var backupLocation = FileSystem.CombinePath(server.OperatingSystem, service.RootDirectory, "BackupManager");
-            var baseDir = FileSystem.CombinePath(server.OperatingSystem, service.RootDirectory,
-                Path.GetDirectoryName(targetPath));
-            return fileSystemService.CompressFiles(baseDir, new[] {Path.GetFileName(targetPath)},
+            var baseDir = FileSystem.CombinePath(server.OperatingSystem, service.RootDirectory, request.Path);
+            var toCompress = request.Directories.Select(x => x.Name).ToList();
+            toCompress.AddRange(request.Files.Select(x => x.Name + x.Extension));
+
+            return fileSystemService.CompressFiles(baseDir, toCompress.ToArray(),
                 ObjectXml.ObjectToXml(GenerateVirtualDirectorySecurity(service)), 5000000000);
         }
 

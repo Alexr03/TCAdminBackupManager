@@ -1,9 +1,12 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using Alexr03.Common.TCAdmin.Extensions;
 using TCAdmin.Interfaces.Database;
+using TCAdmin.SDK.Misc;
 using TCAdmin.SDK.Objects;
+using TCAdminBackupManager.BackupProviders;
 using Service = TCAdmin.GameHosting.SDK.Objects.Service;
 
 namespace TCAdminBackupManager.Models.Objects
@@ -20,12 +23,35 @@ namespace TCAdminBackupManager.Models.Objects
 
         public Backup(int id) : this()
         {
-            this.SetValue("backupId", id);
+            this.SetValue("id", id);
             this.ValidateKeys();
             if (!this.Find())
             {
                 throw new KeyNotFoundException("Cannot find backup with ID: " + id);
             }
+        }
+        
+        public static Backup Create(Service service, BackupRequest request)
+        {
+            return CreateAsync(service, request).ConfigureAwait(false).GetAwaiter().GetResult();
+        }
+
+        public static async System.Threading.Tasks.Task<Backup> CreateAsync(Service service, BackupRequest request)
+        {
+            var backup = new Backup
+            {
+                ServiceId = service.ServiceId,
+                OwnerId = service.UserId,
+                Path = request.Path,
+                Name = request.Name,
+                ProviderId = request.ProviderId,
+                Guid = System.Guid.NewGuid().ToString("D"),
+                Request = request
+            };
+            backup.GenerateKey();
+            var provider = backup.Provider.Create<BackupSolution>();
+            await provider.Backup(backup, request);
+            return backup;
         }
 
         public int BackupId
@@ -46,6 +72,8 @@ namespace TCAdminBackupManager.Models.Objects
             set => this.SetValue("guid", value);
         }
         
+        public string ZipFullName => Guid + ".zip";
+
         public int ServiceId
         {
             get => this.GetIntegerValue("serviceId");
@@ -75,7 +103,21 @@ namespace TCAdminBackupManager.Models.Objects
             get => this.AppData.HasValueAndSet("SIZE") ? long.Parse(this.CustomFields["SIZE"].ToString()) : 0L;
             set => this.CustomFields["SIZE"] = value;
         }
+
+        public string Path
+        {
+            get => this.AppData.HasValue("PATH") ? this.AppData["PATH"].ToString() : string.Empty;
+            set => this.AppData["PATH"] = value;
+        }
         
+        public BackupRequest Request
+        {
+            get => this.AppData.HasValue("REQUEST") ? (BackupRequest)this.AppData["REQUEST"] : null;
+            set => this.AppData["REQUEST"] = value;
+        }
+
+        public string FriendlyFileSize => GetFileSize(FileSize);
+
         public static List<Backup> GetBackupsForService(Service service)
         {
             var whereList = new WhereList
@@ -100,6 +142,17 @@ namespace TCAdminBackupManager.Models.Objects
             };
             var objectList = new Backup().GetObjectList(whereList);
             return objectList.Count == 0 ? new List<Backup>() : objectList.Cast<Backup>().ToList();
+        }
+        
+        public static string GetFileSize(long byteCount)
+        {
+            string[] suf = {"B", "KB", "MB", "GB", "TB", "PB", "EB"}; //Longs run out around EB
+            if (byteCount == 0)
+                return "0" + suf[0];
+            var bytes = Math.Abs(byteCount);
+            var place = Convert.ToInt32(Math.Floor(Math.Log(bytes, 1000)));
+            var num = Math.Round(bytes / Math.Pow(1000, place), 1);
+            return (Math.Sign(byteCount) * num).ToString(CultureInfo.InvariantCulture) + suf[place];
         }
     }
 }
