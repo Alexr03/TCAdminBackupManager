@@ -3,8 +3,8 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using Alexr03.Common.TCAdmin.Extensions;
+using Newtonsoft.Json;
 using TCAdmin.Interfaces.Database;
-using TCAdmin.SDK.Misc;
 using TCAdmin.SDK.Objects;
 using TCAdminBackupManager.BackupProviders;
 using Service = TCAdmin.GameHosting.SDK.Objects.Service;
@@ -30,7 +30,7 @@ namespace TCAdminBackupManager.Models.Objects
                 throw new KeyNotFoundException("Cannot find backup with ID: " + id);
             }
         }
-        
+
         public static Backup Create(Service service, BackupRequest request)
         {
             return CreateAsync(service, request).ConfigureAwait(false).GetAwaiter().GetResult();
@@ -42,7 +42,6 @@ namespace TCAdminBackupManager.Models.Objects
             {
                 ServiceId = service.ServiceId,
                 OwnerId = service.UserId,
-                Path = request.Path,
                 Name = request.Name,
                 ProviderId = request.ProviderId,
                 Guid = System.Guid.NewGuid().ToString("D"),
@@ -59,19 +58,19 @@ namespace TCAdminBackupManager.Models.Objects
             get => this.GetIntegerValue("id");
             set => this.SetValue("id", value);
         }
-        
+
         public string Name
         {
             get => this.GetStringValue("name");
             set => this.SetValue("name", value);
         }
-        
+
         public string Guid
         {
             get => this.GetStringValue("guid");
             set => this.SetValue("guid", value);
         }
-        
+
         public string ZipFullName => Guid + ".zip";
 
         public int ServiceId
@@ -91,7 +90,7 @@ namespace TCAdminBackupManager.Models.Objects
             get => this.GetIntegerValue("providerId");
             set => this.SetValue("providerId", value);
         }
-        
+
         public BackupProvider Provider
         {
             get => new BackupProvider(ProviderId);
@@ -104,17 +103,15 @@ namespace TCAdminBackupManager.Models.Objects
             set => this.CustomFields["SIZE"] = value;
         }
 
-        public string Path
-        {
-            get => this.AppData.HasValue("PATH") ? this.AppData["PATH"].ToString() : string.Empty;
-            set => this.AppData["PATH"] = value;
-        }
-        
         public BackupRequest Request
         {
-            get => this.AppData.HasValue("REQUEST") ? (BackupRequest)this.AppData["REQUEST"] : null;
-            set => this.AppData["REQUEST"] = value;
+            get => this.AppData.HasValue("REQUEST")
+                ? JsonConvert.DeserializeObject<BackupRequest>(this.AppData["REQUEST"].ToString())
+                : null;
+            set => this.AppData["REQUEST"] = JsonConvert.SerializeObject(value);
         }
+
+        public string Path => Request.Path;
 
         public string FriendlyFileSize => GetFileSize(FileSize);
 
@@ -127,12 +124,12 @@ namespace TCAdminBackupManager.Models.Objects
             var objectList = new Backup().GetObjectList(whereList);
             return objectList.Count == 0 ? new List<Backup>() : objectList.Cast<Backup>().ToList();
         }
-        
+
         public static List<Backup> GetBackupsForService(Service service, BackupProvider provider)
         {
             return GetBackupsForService(service, provider.Id);
         }
-        
+
         public static List<Backup> GetBackupsForService(Service service, int providerId)
         {
             var whereList = new WhereList
@@ -143,7 +140,7 @@ namespace TCAdminBackupManager.Models.Objects
             var objectList = new Backup().GetObjectList(whereList);
             return objectList.Count == 0 ? new List<Backup>() : objectList.Cast<Backup>().ToList();
         }
-        
+
         public static string GetFileSize(long byteCount)
         {
             string[] suf = {"B", "KB", "MB", "GB", "TB", "PB", "EB"}; //Longs run out around EB

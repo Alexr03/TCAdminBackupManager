@@ -24,6 +24,8 @@
     @Html.Action("_PageIcons", "Service", new {id = Model.ServiceId})
 }
 
+<h1>TESTING DEV</h1>
+
 @(Html.Kendo().Window()
     .Name("createBackupWindow")
     .Visible(false)
@@ -157,35 +159,39 @@
     }
     
     function restoreBackup(id){
-        $.ajax({
-            type: "POST",
-            url: "/Service/BackupManager/Restore/@Model.ServiceId",
-            data: JSON.stringify({ backupId: id }),
-            contentType: "application/json; charset=utf-8",
-            dataType: "json",
-            beforeSend: Alexr03.Common.HandleAjaxBegin,
-            error: Alexr03.Common.HandleAjaxFailure,
-            success: function (e) {
-                Alexr03.Common.HandleAjaxSuccess(e);
-            }
+        Alexr03.Common.WarningDialog("Restore Backup", "Are you sure you wish to restore this backup? It will overwrite any existing files!").then(function(e) {
+            $.ajax({
+                type: "POST",
+                url: "/Service/BackupManager/Restore/@Model.ServiceId",
+                data: JSON.stringify({ backupId: id }),
+                contentType: "application/json; charset=utf-8",
+                dataType: "json",
+                beforeSend: Alexr03.Common.HandleAjaxBegin,
+                error: Alexr03.Common.HandleAjaxFailure,
+                success: function (e) {
+                    Alexr03.Common.HandleAjaxSuccess(e);
+                }
+            });
         });
     }
     
     function deleteBackup(id){
-        $.ajax({
-            type: "POST",
-            url: "/Service/BackupManager/Delete/@Model.ServiceId",
-            data: JSON.stringify({ backupId: id }),
-            contentType: "application/json; charset=utf-8",
-            dataType: "json",
-            beforeSend: Alexr03.Common.HandleAjaxBegin,
-            error: Alexr03.Common.HandleAjaxFailure,
-            success: function (e) {
-                Alexr03.Common.HandleAjaxSuccess(e, function() {
-                    window.location.reload(false)
-                });
-            }
-        });
+        Alexr03.Common.DangerDialog("Delete Backup", "Are you sure you wish to delete the backup? It will become unrecoverable!").then(function(e) {
+            $.ajax({
+                type: "POST",
+                url: "/Service/BackupManager/Delete/@Model.ServiceId",
+                data: JSON.stringify({ backupId: id }),
+                contentType: "application/json; charset=utf-8",
+                dataType: "json",
+                beforeSend: Alexr03.Common.HandleAjaxBegin,
+                error: Alexr03.Common.HandleAjaxFailure,
+                success: function (e) {
+                    Alexr03.Common.HandleAjaxSuccess(e, function() {
+                        window.location.reload(false)
+                    });
+                }
+            });
+        })
     }
 </script>
 
@@ -266,7 +272,7 @@
             </div>
             <div class="k-card-body">
                 <div class="row">
-                    <div class="col k-text-align-center">
+                    <div class="col-4 d-flex justify-content-center">
                         <i class="fas fa-save fa-7x" style="color: grey"></i>
                     </div>
                     <div class="col">
