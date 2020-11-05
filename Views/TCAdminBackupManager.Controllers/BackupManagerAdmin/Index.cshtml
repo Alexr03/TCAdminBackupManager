@@ -1,0 +1,26 @@
+﻿@using System.Web.Mvc.Html
+@using Kendo.Mvc.UI
+@using TCAdmin.SDK.Web.MVC.Extensions
+@using TCAdminBackupManager.Models.Objects
+
+@{
+    Layout = this.GetTemplateFile("Shared/Main.cshtml", true);
+}
+
+@section sidebar{
+    @Html.Partial("_DefaultSidebar")
+}
+
+
+@(Html.Kendo().TabStrip()
+    .Name("tabstripBackups")
+    .Items(items =>
+    {
+        foreach (var provider in new BackupProvider().GetAll<BackupProvider>().Where(provider => provider.Configuration.HasView))
+        {
+            items.Add().Text(provider.Configuration.ConfigName).LoadContentFrom("Configure", "BackupManagerAdmin", new {provider.Id});
+        }
+    })
+    .HighlightPath(true)
+    .TabPosition(TabStripTabPosition.Left)
+    .SelectedIndex(0))
