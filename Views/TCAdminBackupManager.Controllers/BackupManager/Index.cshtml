@@ -24,8 +24,6 @@
     @Html.Action("_PageIcons", "Service", new {id = Model.ServiceId})
 }
 
-<h1>TESTING DEV</h1>
-
 @(Html.Kendo().Window()
     .Name("createBackupWindow")
     .Visible(false)
@@ -60,13 +58,13 @@
                                 i.Add()
                                     .Label("Backup Name")
                                     .Hint("Unique name to recognise the backup.")
-                                    .InputHtmlAttributes(new { @required = "required"})
+                                    .InputHtmlAttributes(new { required = "required"})
                                     .Field("name");
                                 i.Add()
                                     .Field("providerId")
                                     .Label("Provider")
                                     .Hint("Provider to backup to. Use 'Automatic' if you are unsure.")
-                                    .InputHtmlAttributes(new { @required = "required"})
+                                    .InputHtmlAttributes(new { required = "required"})
                                     .Editor(e => e.DropDownList()
                                         .Name("backupProvider")
                                         .SelectedIndex(0)
@@ -197,8 +195,8 @@
 
 <div class="container-fluid">
     <h3>Storage Provider Information</h3>
-    <div class="row k-card-deck">
-        <div class="col-3">
+    <div class="row">
+        <div class="col-md-3">
             <div class="k-card" style="height:100%">
                 <div class="k-card-header k-bg-primary k-text-align-center text-white">
                     Overall Backup Capacity
@@ -216,7 +214,7 @@
             var usedSize = BackupManagerController.GetBackupsQuotaUsed(service, provider);
             var maxSize = BackupManagerController.GetBackupsQuota(service, provider);
             var percentFull = (int) Math.Round((double) (100 * usedSize) / maxSize);
-            <div class="col-sm">
+            <div class="col-md-3">
                 <div class="k-card" style="height:100%">
                     <div class="k-card-header k-text-align-center text-white @(percentFull < 50 ? "k-bg-success" : percentFull < 75 ? "k-bg-warning" : "k-bg-error")">
                         @provider.Name Backup Capacity
@@ -236,8 +234,8 @@
             </div>
         }
     </div>
-    <div class="row" style="padding-top: 20px">
-        <div class="col-sm">
+    <div class="row" style="padding-top: 20px;margin-bottom: 15px">
+        <div class="col-12">
             <h3>Backups (@backups.Count)</h3>
             <div class="primary-toolbar">
                 @(Html.Kendo().ToolBar()
@@ -265,7 +263,7 @@
     });
 </script>
 <script type="text/x-kendo-tmpl" id="backupTemplate">
-    <div class="col-3">
+    <div class="col-3 k-card-no-touch">
         <div class="k-card" style="height:100%">
             <div class="k-card-header k-bg-primary k-text-align-center text-white">
                 #=Name#
@@ -348,5 +346,9 @@
     .k-filemanager-listview .k-listview-content {
         overflow: auto;
         max-height: 450px;
+    }
+    
+    .k-card-no-touch .k-card {
+        margin-bottom: 15px;
     }
 </style>
