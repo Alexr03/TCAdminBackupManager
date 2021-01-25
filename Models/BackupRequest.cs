@@ -17,7 +17,6 @@ namespace TCAdminBackupManager.Models
             get => _path;
             set
             {
-                Console.WriteLine("Setter was called. - Input: " + value);
                 if (value != "\\" || value != "/")
                 {
                     _path = value;
