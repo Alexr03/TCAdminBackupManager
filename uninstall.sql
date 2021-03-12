@@ -1,4 +1,5 @@
-﻿DROP TABLE tcmodule_backups;
+﻿DROP TABLE tcmodule_backupmanager_providers;
+DROP TABLE tcmodule_backupmanager_service_backups;
 
 DELETE FROM tc_info WHERE name LIKE 'Global.Backup.Settings';
 
